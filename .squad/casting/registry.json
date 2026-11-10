@@ -1,0 +1,53 @@
+{
+  "schema": "squad-agent-provenance/v1",
+  "schema_version": 1,
+  "revision": 1,
+  "generated_at": "2026-11-10T16:31:08.000Z",
+  "agents": {
+    "lead": {
+      "persistent_name": "Lead",
+      "display_name": "Lead",
+      "role": "Tech Lead",
+      "universe": "descriptive",
+      "status": "active",
+      "created_at": "2026-11-10T16:31:08.000Z",
+      "updated_at": "2026-11-10T16:31:08.000Z"
+    },
+    "backend": {
+      "persistent_name": "Backend",
+      "display_name": "Backend",
+      "role": "Backend Services Engineer",
+      "universe": "descriptive",
+      "status": "active",
+      "created_at": "2026-11-10T16:31:08.000Z",
+      "updated_at": "2026-11-10T16:31:08.000Z"
+    },
+    "frontend": {
+      "persistent_name": "Frontend",
+      "display_name": "Frontend",
+      "role": "Frontend Engineer",
+      "universe": "descriptive",
+      "status": "active",
+      "created_at": "2026-11-10T16:31:08.000Z",
+      "updated_at": "2026-11-10T16:31:08.000Z"
+    },
+    "platform": {
+      "persistent_name": "Platform",
+      "display_name": "Platform",
+      "role": "Platform and DevOps Engineer",
+      "universe": "descriptive",
+      "status": "active",
+      "created_at": "2026-11-10T16:31:08.000Z",
+      "updated_at": "2026-11-10T16:31:08.000Z"
+    },
+    "tester": {
+      "persistent_name": "Tester",
+      "display_name": "Tester",
+      "role": "Quality Engineer",
+      "universe": "descriptive",
+      "status": "active",
+      "created_at": "2026-11-10T16:31:08.000Z",
+      "updated_at": "2026-11-10T16:31:08.000Z"
+    }
+  }
+}
