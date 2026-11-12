@@ -1105,6 +1105,68 @@ engine:
   version: 1.0.78
   agent: squad
   copilot-sdk: true
+  driver:
+    node: |
+      "use strict";
+      const { readFileSync } = require("node:fs");
+      const { createRequire } = require("node:module");
+      const { join, resolve } = require("node:path");
+
+      function workspaceSDK(sdk, workspace) {
+        const root = resolve(workspace);
+        return {
+          ...sdk,
+          CopilotClient: class extends sdk.CopilotClient {
+            createSession(config) {
+              return super.createSession({
+                ...config,
+                workingDirectory: root,
+                skillDirectories: [join(root, ".github", "skills")],
+              });
+            }
+          },
+        };
+      }
+
+      async function main(env = process.env) {
+        for (const name of ["GITHUB_WORKSPACE", "RUNNER_TEMP", "GH_AW_PROMPT",
+          "COPILOT_SDK_URI", "COPILOT_CONNECTION_TOKEN"]) {
+          if (!env[name]) throw new Error(`${name} is required`);
+        }
+        const native = createRequire(join(env.RUNNER_TEMP, "gh-aw", "actions", "copilot_sdk_driver.cjs"));
+        const { runWithCopilotSDK } = native("./copilot_sdk_session.cjs");
+        const { parseCopilotSDKToolConfig } = native("./copilot_sdk_tool_config.cjs");
+        const { parseMultiProviderJson } = native("./copilot_sdk_multi_provider.cjs");
+        const { applyModelFallback } = native("./model_fallback.cjs");
+        const { resolveRoutingReasoningEffort } = native("./copilot_routing_effort.cjs");
+        const providers = parseMultiProviderJson(env.GH_AW_COPILOT_SDK_MULTI_PROVIDER_JSON);
+        if (!providers) throw new Error("Missing or invalid compiler provider configuration");
+        const toolConfig = parseCopilotSDKToolConfig(env.GH_AW_COPILOT_SDK_TOOL_CONFIG);
+        const log = message => process.stderr.write(`[squad-sdk-driver] ${message}\n`);
+        const sdk = createRequire(join(env.GITHUB_WORKSPACE, "package.json"))("@github/copilot-sdk");
+        return runWithCopilotSDK({
+          sdkUri: env.COPILOT_SDK_URI,
+          connectionToken: env.COPILOT_CONNECTION_TOKEN,
+          prompt: readFileSync(env.GH_AW_PROMPT, "utf8"),
+          model: (env.GH_AW_MODEL_ROUTING === "1" ? env.COPILOT_MODEL
+            : applyModelFallback(env, "COPILOT_MODEL", log)) || providers.model || undefined,
+          reasoningEffort: resolveRoutingReasoningEffort(env),
+          providers: providers.providers,
+          models: providers.models,
+          permissionConfig: toolConfig.permissions,
+          toolConfig,
+          logger: log,
+          sdkModule: workspaceSDK(sdk, env.GITHUB_WORKSPACE),
+        });
+      }
+
+      module.exports = { workspaceSDK, main };
+      if (require.main === module) {
+        main().then(result => { process.exitCode = result.exitCode; }).catch(error => {
+          process.stderr.write(`[squad-sdk-driver] ${error.message}\n`);
+          process.exitCode = 1;
+        });
+      }
 tools:
   bash: true
   web-fetch: null
@@ -2496,7 +2558,24 @@ Guidelines: 4–7 active agents. Min: Lead + 2 specialists + 1 quality role.
    - Descriptive mode: keep names role-derived, short, and unique; do not assign fictional character names.
    - Themed modes: use one universe only, pressure/function over authority, no spoilers, and early-introduction names. For a custom universe, apply the same one-universe and spoiler-safety rules.
 4. Write `.squad/casting/registry.json` as `squad-agent-provenance/v1`. Compare the committed registry: preserve every ID/tombstone, immutable role/creation time, and avatar unless explicitly cleared; set `revision` greater than the committed revision (legacy is 0). Keys are immutable IDs/directories. Records hold equal names, role, universe, lifecycle/status, and optional ID-owned avatar under `.squad/agents/{id}/`. Rename uses the existing ID; deletion tombstones; never reuse or infer IDs. In descriptive mode every registry entry has `universe` set to `"descriptive"`.
-5. Initialize `.squad/casting/history.json`: `{ "universe_usage_history": [{ "universe": "descriptive-or-Universe", "assigned_at": "ISO", "agent_count": N }], "assignment_cast_snapshots": {} }`
+5. Write `.squad/casting/history.json` as a coherent pair with the registry, not an empty snapshot map. Preserve committed history. For a fresh Cast with no committed registry, use revision 1. Add a snapshot whose `created_at` equals registry `generated_at`, whose `agents` contains exactly the selected active specialist IDs, and whose `universe` matches those agents. Add a matching universe usage record with **`used_at`**, not `assigned_at`. For example, with four selected IDs and registry `generated_at` equal to `2026-01-01T00:00:00.000Z`:
+
+```json
+{
+  "assignment_cast_snapshots": {
+    "cast-revision-1": {
+      "created_at": "2026-01-01T00:00:00.000Z",
+      "agents": ["lead", "docs", "observability", "qa"],
+      "universe": "descriptive"
+    }
+  },
+  "universe_usage_history": [
+    { "universe": "descriptive", "used_at": "2026-01-01T00:00:00.000Z" }
+  ]
+}
+```
+
+Replace the example IDs, timestamp, universe, and revision with this Cast's actual values; never copy stale values or omit the selected IDs.
 
 ##### Step 4: Generate Scaffolding
 
@@ -2538,7 +2617,7 @@ Create/replace:
 
    - YAML frontmatter: `name: Squad`, a description that says it routes repository work to the active GH-AW Cast, and `tools: ["*"]`.
    - `# Squad Coordinator` plus one short paragraph establishing that the coordinator routes work and does not replace specialist judgment.
-   - `## Cast sources` listing only the concrete final Cast paths for the team, routing, registry, history, policy, meet-the-squad, every active specialist member charter, and the four built-in charter paths (`.squad/agents/scribe/charter.md`, `.squad/agents/ralph/charter.md`, `.squad/agents/rai/charter.md`, `.squad/agents/fact-checker/charter.md`). Do not use path globs or dynamic paths.
+   - Exactly one literal `## Cast sources` listing only the concrete final Cast paths for the team, routing, registry, history, policy, meet-the-squad, every active specialist member charter, and the four built-in charter paths (`.squad/agents/scribe/charter.md`, `.squad/agents/ralph/charter.md`, `.squad/agents/rai/charter.md`, `.squad/agents/fact-checker/charter.md`). All these references must appear inside this section, before the next H2 heading. Putting the four built-in links only under `## Built-in Support Agents` fails validation. Do not use path globs or dynamic paths.
    - `## Routing work` with this behavior: read the routing table, select only active registry members, load only the selected member's charter, delegate through the platform's available agent mechanism, and synthesize the result for the user. If no route matches, choose the active Lead; if no active Lead exists, ask the user rather than inventing a member.
    - `## Built-in Support Agents` — concise operational instructions establishing that Scribe, Ralph, Rai, and Fact Checker are mandatory support agents with a fixed lifecycle role (Scribe silently merges accepted durable decisions only, never session or orchestration logs; Ralph monitors the work queue on request; Rai reviews for RAI/content-safety concerns and can gate on 🔴 Critical findings; Fact Checker verifies claims and offers Devil's-Advocate review before risky work ships). Their canonical charters govern when they run. Never present them as selectable domain specialists, never list them as routing-table destinations, and never count them toward `specialists`, `taskTypes`, or `hints`.
    - One complete generated Team Capabilities block delimited by `<!-- SQUAD:TEAM-CAPABILITIES:BEGIN -->` and `<!-- SQUAD:TEAM-CAPABILITIES:END -->`. Preserve the stable heading, metadata, specialist table, supported task types, routing hints, and capability boundaries format. Set `specialists` to the active registry count and set both `taskTypes` and `hints` to the routing-row count; all three counts must be nonzero and must never include the four built-ins. Generate every value from the final team, routing, registry, and active specialist charters.
