@@ -1105,68 +1105,6 @@ engine:
   version: 1.0.78
   agent: squad
   copilot-sdk: true
-  driver:
-    node: |
-      "use strict";
-      const { readFileSync } = require("node:fs");
-      const { createRequire } = require("node:module");
-      const { join, resolve } = require("node:path");
-
-      function workspaceSDK(sdk, workspace) {
-        const root = resolve(workspace);
-        return {
-          ...sdk,
-          CopilotClient: class extends sdk.CopilotClient {
-            createSession(config) {
-              return super.createSession({
-                ...config,
-                workingDirectory: root,
-                skillDirectories: [join(root, ".github", "skills")],
-              });
-            }
-          },
-        };
-      }
-
-      async function main(env = process.env) {
-        for (const name of ["GITHUB_WORKSPACE", "RUNNER_TEMP", "GH_AW_PROMPT",
-          "COPILOT_SDK_URI", "COPILOT_CONNECTION_TOKEN"]) {
-          if (!env[name]) throw new Error(`${name} is required`);
-        }
-        const native = createRequire(join(env.RUNNER_TEMP, "gh-aw", "actions", "copilot_sdk_driver.cjs"));
-        const { runWithCopilotSDK } = native("./copilot_sdk_session.cjs");
-        const { parseCopilotSDKToolConfig } = native("./copilot_sdk_tool_config.cjs");
-        const { parseMultiProviderJson } = native("./copilot_sdk_multi_provider.cjs");
-        const { applyModelFallback } = native("./model_fallback.cjs");
-        const { resolveRoutingReasoningEffort } = native("./copilot_routing_effort.cjs");
-        const providers = parseMultiProviderJson(env.GH_AW_COPILOT_SDK_MULTI_PROVIDER_JSON);
-        if (!providers) throw new Error("Missing or invalid compiler provider configuration");
-        const toolConfig = parseCopilotSDKToolConfig(env.GH_AW_COPILOT_SDK_TOOL_CONFIG);
-        const log = message => process.stderr.write(`[squad-sdk-driver] ${message}\n`);
-        const sdk = createRequire(join(env.GITHUB_WORKSPACE, "package.json"))("@github/copilot-sdk");
-        return runWithCopilotSDK({
-          sdkUri: env.COPILOT_SDK_URI,
-          connectionToken: env.COPILOT_CONNECTION_TOKEN,
-          prompt: readFileSync(env.GH_AW_PROMPT, "utf8"),
-          model: (env.GH_AW_MODEL_ROUTING === "1" ? env.COPILOT_MODEL
-            : applyModelFallback(env, "COPILOT_MODEL", log)) || providers.model || undefined,
-          reasoningEffort: resolveRoutingReasoningEffort(env),
-          providers: providers.providers,
-          models: providers.models,
-          permissionConfig: toolConfig.permissions,
-          toolConfig,
-          logger: log,
-          sdkModule: workspaceSDK(sdk, env.GITHUB_WORKSPACE),
-        });
-      }
-
-      module.exports = { workspaceSDK, main };
-      if (require.main === module) {
-        main().then(result => { process.exitCode = result.exitCode; }).catch(error => {
-          process.stderr.write(`[squad-sdk-driver] ${error.message}\n`);
-          process.exitCode = 1;
-        });
-      }
 tools:
   bash: true
   web-fetch: null
@@ -2316,7 +2254,7 @@ When **Step AG-3** returned `REFUSE`:
 
 ## Execute Mode
 
-Each mode's playbook ships as a **skill**. Enter this section only after **Actor Authorization Guard** returned `AUTHORIZED` or `AUTH_SKIPPED`. Load only the one skill for the parsed mode, then follow it verbatim.
+Each mode's playbook ships as a **skill** materialized on disk at `.github/skills/<skill-name>/SKILL.md`. Enter this section only after **Actor Authorization Guard** returned `AUTHORIZED` or `AUTH_SKIPPED`. Load only the one skill for the parsed mode by reading `.github/skills/<skill-name>/SKILL.md` via `bash` (`cat .github/skills/<skill-name>/SKILL.md`), then follow it verbatim. Do not fail or emit `report_incomplete` if the CLI `skill` tool does not list `<skill-name>`; always read `.github/skills/<skill-name>/SKILL.md` from disk.
 
 **MODE ISOLATION:** Execute ONLY the active mode's skill. Other modes' instructions do not apply — do not load more than one mode skill.
 
